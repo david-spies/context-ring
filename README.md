@@ -1,3 +1,4 @@
+![Context-Ring](docs/context-ring-banner.svg)
 # Context-Ring
 
 > **State-Preserving Consistent-Hash Load Balancer for AI Agent Swarms**
