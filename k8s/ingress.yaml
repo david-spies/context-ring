@@ -1,0 +1,60 @@
+---
+# ─── Ingress — nginx-ingress-controller ──────────────────────────────────────
+# Exposes the Context-Ring proxy externally with TLS termination.
+#
+# Prerequisites:
+#   1. nginx-ingress-controller deployed in the cluster
+#   2. cert-manager deployed (for automatic TLS certificates)
+#   3. DNS record pointing proxy.your-domain.com to the ingress load balancer
+#
+# Apply:
+#   kubectl apply -f k8s/ingress.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: context-ring-proxy
+  namespace: context-ring
+  annotations:
+    # ── TLS (cert-manager) ──────────────────────────────────────────────────
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ── Proxy timeouts (match PROXY_TIMEOUT_SECONDS) ────────────────────────
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "5"
+
+    # ── Streaming support (SSE / chunked transfer) ───────────────────────────
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+
+    # ── Rate limiting (outer nginx layer, defence-in-depth) ──────────────────
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+
+    # ── Body size ────────────────────────────────────────────────────────────
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # ── HSTS (Strict-Transport-Security) ─────────────────────────────────────
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - proxy.your-domain.com
+      secretName: context-ring-tls
+  rules:
+    - host: proxy.your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: context-ring-proxy
+                port:
+                  name: http

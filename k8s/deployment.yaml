@@ -1,0 +1,172 @@
+---
+# ─── Context-Ring Proxy — Kubernetes Deployment ───────────────────────────────
+# Deploys the proxy as a stateless Deployment behind a ClusterIP Service.
+# Designed for 1–N replicas with Redis-backed gossip state sync.
+#
+# Prerequisites:
+#   kubectl apply -f k8s/namespace.yaml
+#   kubectl apply -f k8s/secret.yaml       (create before this file)
+#   kubectl apply -f k8s/configmap.yaml
+#
+# Deploy:
+#   kubectl apply -f k8s/deployment.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: context-ring-proxy
+  namespace: context-ring
+  labels:
+    app: context-ring-proxy
+    version: "1.0.0"
+    component: proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: context-ring-proxy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0        # zero-downtime rolling updates
+  template:
+    metadata:
+      labels:
+        app: context-ring-proxy
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: context-ring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: proxy
+          image: ghcr.io/your-org/context-ring:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: context-ring-config
+          env:
+            - name: CONTEXT_RING_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: context-ring-secrets
+                  key: api-key
+            - name: SESSION_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: context-ring-secrets
+                  key: hmac-secret
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: context-ring-secrets
+                  key: redis-url
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 5
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: context-ring-proxy
+  namespace: context-ring
+  labels:
+    app: context-ring-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app: context-ring-proxy
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: context-ring
+  namespace: context-ring
+  labels:
+    app: context-ring-proxy
+
+---
+# Optional: HorizontalPodAutoscaler for auto-scaling proxy replicas
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: context-ring-proxy
+  namespace: context-ring
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: context-ring-proxy
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

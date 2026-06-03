@@ -1,0 +1,54 @@
+---
+# ─── Namespace ────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: context-ring
+  labels:
+    app.kubernetes.io/name: context-ring
+
+---
+# ─── ConfigMap — non-sensitive env vars ───────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: context-ring-config
+  namespace: context-ring
+data:
+  LOG_LEVEL: "INFO"
+  VNODE_REPLICAS: "128"
+  PROXY_TIMEOUT_SECONDS: "60"
+  PROXY_CONNECT_TIMEOUT_SECONDS: "5"
+  HTTP_MAX_KEEPALIVE: "50"
+  HTTP_MAX_CONNECTIONS: "200"
+  RATE_LIMIT_REQUESTS: "500"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  MAX_BODY_BYTES: "10485760"
+  SESSION_TTL_SECONDS: "3600"
+  CORS_ORIGINS: "https://your-app.example.com"
+  # Comma-separated bootstrap nodes. Can also be registered dynamically.
+  INITIAL_AGENT_NODES: ""
+
+---
+# ─── Secret template — fill before applying ───────────────────────────────────
+# DO NOT commit real values. Use kubectl create secret or a secrets manager.
+#
+# To create from command line:
+#   kubectl create secret generic context-ring-secrets \
+#     --namespace context-ring \
+#     --from-literal=api-key="$(openssl rand -base64 32)" \
+#     --from-literal=hmac-secret="$(openssl rand -base64 32)" \
+#     --from-literal=redis-url="redis://:password@redis-service:6379/0"
+#
+# The values below are base64-encoded PLACEHOLDERS. Replace before deploying.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: context-ring-secrets
+  namespace: context-ring
+type: Opaque
+data:
+  # echo -n 'REPLACE_ME' | base64
+  api-key: UkVQTEFDRV9NRQ==
+  hmac-secret: UkVQTEFDRV9NRQ==
+  redis-url: cmVkaXM6Ly9sb2NhbGhvc3Q6NjM3OS8w
