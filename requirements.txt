@@ -1,0 +1,25 @@
+# ─── Context-Ring — Python dependencies ──────────────────────────────────────
+# Pin to exact minor versions for reproducible builds.
+# Run: pip install -r requirements.txt
+
+# ── Core framework ───────────────────────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6      # includes uvloop + httptools for max throughput
+httpx==0.27.2                  # async HTTP client for upstream proxying
+pydantic==2.9.2                # data validation / schema
+
+# ── Hashing ──────────────────────────────────────────────────────────────────
+mmh3==4.1.0                    # MurmurHash3 — non-cryptographic, high-throughput
+
+# ── State synchronisation ────────────────────────────────────────────────────
+redis[asyncio]==5.0.8          # async Redis client (pub/sub + key-value)
+
+# ── ASGI performance ─────────────────────────────────────────────────────────
+uvloop==0.20.0                 # fast event loop (Linux / macOS only)
+httptools==0.6.1               # fast HTTP parser
+
+# ── Security ─────────────────────────────────────────────────────────────────
+python-multipart==0.0.12       # required by FastAPI for form parsing
+
+# ─── Development / testing ────────────────────────────────────────────────────
+# Install with: pip install -r requirements-dev.txt
