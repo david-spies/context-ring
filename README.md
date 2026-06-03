@@ -2,7 +2,6 @@
 
 > **State-Preserving Consistent-Hash Load Balancer for AI Agent Swarms**
 
-[![CI](https://github.com/your-org/context-ring/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/context-ring/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
