@@ -1,0 +1,147 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Context-Ring — full local stack
+#
+# Services:
+#   context-ring-proxy   The consistent-hash reverse proxy
+#   agent-worker-1..3    Lightweight mock LLM worker processes
+#   redis                Ring state synchronisation + session persistence
+#   prometheus           Metrics scraper (optional)
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-agent-defaults: &agent-defaults
+  image: python:3.11-slim
+  restart: unless-stopped
+  networks:
+    - swarm-mesh
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8001}/health')"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+  command: >
+    python -c "
+    import os, json, asyncio
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+
+    PORT = int(os.getenv('PORT', 8001))
+    NAME = os.getenv('AGENT_NAME', 'agent')
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'ok', 'agent': NAME}).encode())
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(length) or '{}')
+            resp = json.dumps({
+                'id': 'chatcmpl-mock',
+                'object': 'chat.completion',
+                'agent': NAME,
+                'session_id': body.get('session_id'),
+                'choices': [{'message': {'role': 'assistant', 'content': f'Hello from {NAME}'}}]
+            }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+
+    print(f'[{NAME}] Listening on :{PORT}')
+    HTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
+    "
+
+services:
+  # ── Proxy ────────────────────────────────────────────────────────────────
+  context-ring-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: context-ring-proxy
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      INITIAL_AGENT_NODES: "http://agent-worker-1:8001,http://agent-worker-2:8001,http://agent-worker-3:8001"
+      REDIS_URL: "redis://redis:6379/0"
+      VNODE_REPLICAS: "128"
+      CONTEXT_RING_API_KEY: "${CONTEXT_RING_API_KEY:-change-me-in-production}"
+      LOG_LEVEL: "INFO"
+      PROXY_TIMEOUT_SECONDS: "60"
+      PROXY_CONNECT_TIMEOUT_SECONDS: "5"
+      RATE_LIMIT_REQUESTS: "500"
+      CORS_ORIGINS: "*"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - swarm-mesh
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Agent Workers ─────────────────────────────────────────────────────────
+  agent-worker-1:
+    <<: *agent-defaults
+    container_name: agent-worker-1
+    environment:
+      PORT: "8001"
+      AGENT_NAME: "agent-worker-1"
+
+  agent-worker-2:
+    <<: *agent-defaults
+    container_name: agent-worker-2
+    environment:
+      PORT: "8001"
+      AGENT_NAME: "agent-worker-2"
+
+  agent-worker-3:
+    <<: *agent-defaults
+    container_name: agent-worker-3
+    environment:
+      PORT: "8001"
+      AGENT_NAME: "agent-worker-3"
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: context-ring-redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - swarm-mesh
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ── Prometheus (optional) ─────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: context-ring-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - swarm-mesh
+    profiles:
+      - monitoring   # start with: docker compose --profile monitoring up
+
+networks:
+  swarm-mesh:
+    driver: bridge
+
+volumes:
+  redis-data:
